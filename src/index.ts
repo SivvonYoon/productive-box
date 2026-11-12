@@ -1,97 +1,23 @@
 import { Octokit } from '@octokit/rest';
 import { config } from 'dotenv';
 
+import { collectCommits, summarizeCommits } from './collectCommits.js';
 import generateBarChart from './generateBarChart.js';
 import githubQuery from './githubQuery.js';
-import { createCommittedDateQuery, createContributedRepoQuery, userInfoQuery } from './queries.js';
+import { userInfoQuery } from './queries.js';
 /**
  * get environment variable
  */
 config({ path: ['.env'] });
 
-interface IRepo {
-  name: string;
-  owner: string;
-}
-
-interface RepoInfo {
-  name: string;
-  owner: {
-    login: string;
-  };
-  isFork: boolean;
-}
-
-interface Edge {
-  node: {
-    committedDate: string;
-  };
-}
-
 (async () => {
-  /**
-   * First, get user id
-   */
-  const userResponse = await githubQuery(userInfoQuery).catch((error) =>
-    console.error(`Unable to get username and id\n${error}`),
-  );
+  const userResponse = await githubQuery(userInfoQuery);
   const { login: username, id } = userResponse?.data?.viewer ?? {};
+  if (!username || !id) throw new Error('GitHub did not return the authenticated user.');
 
-  /**
-   * Second, get contributed repos
-   */
-  const contributedRepoQuery = createContributedRepoQuery(username);
-  const repoResponse = await githubQuery(contributedRepoQuery).catch((error) =>
-    console.error(`Unable to get the contributed repo\n${error}`),
-  );
-
-  /**
-   * If the token is invalid, stop the process
-   */
-  if (repoResponse.message === 'Bad credentials') {
-    console.error('Invalid GitHub token. Please renew the GH_TOKEN');
-    return;
-  }
-
-  const repos: IRepo[] = repoResponse?.data?.user?.repositoriesContributedTo?.nodes
-    .filter((repoInfo: RepoInfo) => !repoInfo?.isFork)
-    .map((repoInfo: RepoInfo) => ({
-      name: repoInfo?.name,
-      owner: repoInfo?.owner?.login,
-    }));
-
-  /**
-   * Third, get commit time and parse into commit-time/hour diagram
-   */
-  const committedTimeResponseMap = await Promise.all(
-    repos.map(({ name, owner }) => githubQuery(createCommittedDateQuery(id, name, owner))),
-  ).catch((error) => console.error(`Unable to get the commit info\n${error}`));
-
-  if (!committedTimeResponseMap) return;
-
-  let morning = 0; // 6 - 12
-  let daytime = 0; // 12 - 18
-  let evening = 0; // 18 - 24
-  let night = 0; // 0 - 6
-
-  committedTimeResponseMap.forEach((committedTimeResponse) => {
-    committedTimeResponse?.data?.repository?.defaultBranchRef?.target?.history?.edges.forEach((edge: Edge) => {
-      const committedDate = edge?.node?.committedDate;
-      const timeString = new Date(committedDate).toLocaleTimeString('en-US', {
-        hour12: false,
-        timeZone: process.env.TIMEZONE,
-      });
-      const hour = +timeString.split(':')[0];
-
-      /**
-       * voting and counting
-       */
-      if (hour >= 6 && hour < 12) morning++;
-      if (hour >= 12 && hour < 18) daytime++;
-      if (hour >= 18 && hour < 24) evening++;
-      if (hour >= 0 && hour < 6) night++;
-    });
-  });
+  const { commits, repositoryCount } = await collectCommits(username, id, githubQuery);
+  const [morning, daytime, evening, night] = summarizeCommits(commits, process.env.TIMEZONE);
+  console.log(`Collected ${commits.length} unique authored commits from ${repositoryCount} repositories.`);
 
   /**
    * Next, generate diagram
@@ -146,4 +72,7 @@ interface Edge {
   });
 
   console.log('Success to update the gist 🎉');
-})();
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

@@ -4,8 +4,12 @@ export default async function (query: string): Promise<any> {
     headers: {
       Authorization: `bearer ${process.env.GH_TOKEN}`,
     },
-    body: JSON.stringify({ query }).replace(/\\n/g, ''),
+    body: JSON.stringify({ query }),
   });
-
-  return res.json();
+  if (!res.ok) throw new Error(`GitHub API returned HTTP ${res.status}`);
+  const result = (await res.json()) as { errors?: { message: string }[] };
+  if (result.errors?.length) {
+    throw new Error(result.errors.map((error: { message: string }) => error.message).join('; '));
+  }
+  return result;
 }

@@ -37,6 +37,17 @@
 
 This project uses GitHub graphQL API to get the commit histories and write into the gist by [rest.js](https://github.com/octokit/rest.js#readme)
 
+## What the statistics count
+
+- All pages of your owned repositories and GitHub's contributed-repository list are read, including private repositories accessible to `GH_TOKEN`.
+- Every matching authored commit reachable from each repository's default branch is read, with no 100- or 300-commit limit. An unmerged branch is outside this scope.
+- Owned repositories without recent contributions are included. Contributions to other people's repositories are limited to the repositories GitHub exposes in its contribution list.
+- Forks are included, and identical commit hashes are counted once across repositories. Each history is pinned to its observed branch head while pages are read.
+- Commit timestamps use `TIMEZONE`. Only aggregate time-of-day counts are written to the public Gist; repository names and commit details are not published.
+- A failed or incomplete API page fails the update instead of publishing partial statistics. Token permissions still determine which private repositories can be read.
+
+Run `yarn test` before `yarn build` to verify pagination, duplicate handling, API failures and timezone boundaries.
+
 ## Setup
 
 ### Prep work
